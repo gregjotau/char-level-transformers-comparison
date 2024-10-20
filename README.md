@@ -1,2 +1,4 @@
-# char-level-transformers-comparison
-Comparing Transformer variants on character-level transduction tasks
+# Comparing Transformer variants on character-level transduction tasks
+
+This repository contains the code for the paper "Comparing Transformer variants for character-level transduction tasks".
+
