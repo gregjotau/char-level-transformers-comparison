@@ -1,9 +1,8 @@
 import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from sklearn.model_selection import train_test_split
 from torch.utils.data import Dataset, DataLoader
 
 # 1. Data Preparation
@@ -67,22 +66,38 @@ val_loader = DataLoader(val_dataset, batch_size=2)
 class Seq2SeqLemmatizer(nn.Module):
     def __init__(self, input_size, hidden_size, output_size):
         super().__init__()
+        self.hidden_size = hidden_size
         self.embedding = nn.Embedding(input_size, hidden_size)
-        self.encoder = nn.LSTM(hidden_size, hidden_size)
-        self.decoder = nn.LSTM(hidden_size, hidden_size)
+        self.encoder = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        self.decoder = nn.LSTM(hidden_size, hidden_size, batch_first=True)
         self.fc = nn.Linear(hidden_size, output_size)
 
     def forward(self, src, trg):
+        batch_size = src.shape[0]
+
+        # Encoder
         embedded = self.embedding(src)
         _, (hidden, cell) = self.encoder(embedded)
 
-        outputs = []
-        for i in range(trg.shape[1]):
-            output, (hidden, cell) = self.decoder(embedded[:, i].unsqueeze(1), (hidden, cell))
-            prediction = self.fc(output.squeeze(0))
-            outputs.append(prediction)
+        # Reshape hidden and cell states
+        hidden = hidden.view(1, batch_size, self.hidden_size)
+        cell = cell.view(1, batch_size, self.hidden_size)
 
-        return torch.stack(outputs).transpose(0, 1)
+        # Decoder
+        trg_len = trg.shape[1]
+        outputs = torch.zeros(batch_size, trg_len, len(char2idx)).to(src.device)
+
+        decoder_input = self.embedding(trg[:, 0]).unsqueeze(1)
+
+        for t in range(trg_len):
+            output, (hidden, cell) = self.decoder(decoder_input, (hidden, cell))
+            prediction = self.fc(output.squeeze(1))
+            outputs[:, t] = prediction
+
+            # Teacher forcing
+            decoder_input = self.embedding(trg[:, t]).unsqueeze(1)
+
+        return outputs
 
 
 # 5. Training Loop
@@ -120,12 +135,11 @@ for epoch in range(num_epochs):
 
 def lemmatize(word):
     model.eval()
-    indices = torch.tensor([word_to_indices(word)]).long()
+    indices = torch.tensor([word_to_indices(word)]).to(next(model.parameters()).device)
     with torch.no_grad():
         output = model(indices, indices)  # Using same input for target (we'll ignore it)
     predicted_indices = output.argmax(2).squeeze()
     return ''.join([idx2char[idx.item()] for idx in predicted_indices if idx.item() != 0])
-
 
 # Test the model
 test_words = ["walking", "speaks", "danced"]
